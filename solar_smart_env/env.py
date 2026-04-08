@@ -142,7 +142,7 @@ class SolarEnergyEnv:
         # FINAL FIX: Strict (0, 1) constraint
         # Use a slightly narrower range [0.01, 0.99] to be absolutely safe
         clamped_score = max(0.01, min(0.99, float(final_score)))
-        return round(clamped_score, 4)
+        return float(clamped_score)
 
     def close(self):
         """
