@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solar-smart-grid"
+version = "1.0.0"
+description = "A production-grade Smart Solar Energy Management System RL Environment."
+authors = [
+    { name = "Meta OpenEnv Participant" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "openai",
+    "gradio",
+    "stable-baselines3",
+    "gymnasium",
+    "pandas",
+    "plotly",
+    "matplotlib",
+    "requests",
+    "sqlmodel",
+    "shimmy>=2.0",
+    "huggingface_hub",
+    "Pillow",
+    "scipy"
+]
+
+[project.entry-points."openenv.environments"]
+solar-smart-grid = "env:SolarEnergyEnv"
