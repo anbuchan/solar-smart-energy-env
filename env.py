@@ -140,19 +140,15 @@ class SolarEnergyEnv:
             final_score = 0.5
             
         # FINAL CONSTRAINT: Strictly inside (0,1)
-        epsilon = 1e-6
+        # Using 0.01 as epsilon to ensure that even after rounding by the validator,
+        # the score remains strictly non-zero and non-one.
+        epsilon = 0.01
         score = float(final_score)
 
-        # Clamp safely inside (0,1)
-        if score <= 0.0:
-            score = 0.0 + epsilon
-        elif score >= 1.0:
-            score = 1.0 - epsilon
-
-        # Extra safety clamp
+        # Clamp safely inside (0, 1)
         score = max(epsilon, min(1.0 - epsilon, score))
 
-        return score
+        return float(score)
 
     def close(self):
         """
