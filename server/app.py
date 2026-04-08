@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, RedirectResponse
 try:
     from ..env import SolarEnergyEnv
     from ..rl_agent import SolarGymEnv, get_trained_model
@@ -22,6 +22,10 @@ import random
 import plotly.graph_objects as go
 
 app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return RedirectResponse(url="/")
 
 # Initialization on Startup
 try:
