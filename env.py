@@ -34,7 +34,7 @@ class SolarEnergyEnv:
         self.total_wasted_energy = 0.0
         
         if self.task_id == "hard":
-            self.battery_charge = 10.0 
+            self.battery_charge = 40.0 
             self.demand_multiplier = 1.8 
             self.cloud_modifier = 0.8 
             self.hospital_active = True
@@ -208,7 +208,7 @@ class SolarEnergyEnv:
         self.step_count += 1
         
         done = self.step_count >= self.max_steps
-        if self.battery_charge <= 0.1 and self.task_id == "hard": done = True
+        if self.battery_charge <= 0.0 and self.task_id == "hard": done = True
             
         self._update_state()
         return self.state(), step_reward, done, {
