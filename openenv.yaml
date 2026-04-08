@@ -1,0 +1,31 @@
+name: solar-smart-grid
+version: 1.0.0
+description: "A production-grade Smart Solar Energy Management System RL Environment."
+authors: ["Hackathon Participant"]
+entry_point: "env:SolarEnergyEnv"
+metadata:
+  domain: Energy Management
+  complexity: high
+  real_world_relevance: true
+
+tasks:
+  - name: easy
+    description: "Stable sunlight and low demand."
+  - name: medium
+    description: "Fluctuating sunlight and moderate demand."
+  - name: hard
+    description: "Low sunlight, high demand, limited battery, and hospital critical zones active."
+
+observation_space:
+  type: dict
+  schema: models:EnergyObservation
+
+action_space:
+  type: discrete
+  actions:
+    - store_energy
+    - distribute_energy
+    - reduce_load
+    - prioritize_critical
+
+reward_range: [-1.0, 1.0]

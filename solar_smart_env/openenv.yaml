@@ -1,0 +1,27 @@
+name: solar_smart_env
+description: Smart Solar Energy Management RL Environment
+version: 1.0
+
+entrypoint: env:SolarEnergyEnv
+
+observation_space:
+  step: int
+  time_of_day: str
+  weather: str
+  cloud_coverage: float
+  solar_generation: float
+  total_demand: float
+  battery_charge: float
+  battery_health: float
+  battery_efficiency: float
+
+action_space:
+  action: int
+
+tasks:
+  - name: easy
+    description: Baseline balancing. Maintain grid efficiently without dropping battery below 10%.
+  - name: medium
+    description: Handle unexpected midday demand spikes. Ensure demand is fully served despite clouds.
+  - name: hard
+    description: Nighttime Crisis. Sunset start with empty battery; perform critical survival moves.
