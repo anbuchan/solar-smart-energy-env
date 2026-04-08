@@ -29,3 +29,7 @@ action_space:
     - prioritize_critical
 
 reward_range: [-1.0, 1.0]
+
+server:
+  app_file: server/app.py
+  app_port: 7860
