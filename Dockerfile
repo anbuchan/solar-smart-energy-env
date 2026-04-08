@@ -1,25 +1,25 @@
-FROM python:3.10
+FROM python:3.10-slim
 
 # Set up a new user named "user" with user ID 1000
 RUN useradd -m -u 1000 user
-# Switch to the "user" user
 USER user
-# Set home to the user's home directory
 ENV HOME=/home/user \
-	PATH=/home/user/.local/bin:$PATH
+    PATH=/home/user/.local/bin:$PATH
 
-# Set the working directory to the user's home directory
 WORKDIR $HOME/app
 
-# Copy the requirements file into the container
-COPY --chown=user requirements.txt $HOME/app/
+# Install uv for fast, reliable builds
+RUN pip install --no-cache-dir uv
 
-# Install dependencies from requirements.txt (where versions are pinned)
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy the dependency files first for caching
+COPY --chown=user pyproject.toml uv.lock $HOME/app/
 
-# Copy the rest of the app with correct permissions
+# Install the project and its dependencies (including openenv-core)
+RUN uv pip install --no-cache-dir -e .
+
+# Copy the rest of the app
 COPY --chown=user . $HOME/app
 
-# Start the application
-CMD ["python", "app.py"]
+# The validator looks for 'server' script entry point in pyproject.toml
+# CMD ["server"] will run 'server/app.py:main'
+CMD ["server"]
