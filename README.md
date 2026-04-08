@@ -4,14 +4,18 @@ emoji: ⚡
 colorFrom: yellow
 colorTo: blue
 sdk: docker
-tags: ["openenv"]
+app_file: app.py
+app_port: 7860
+python_version: "3.10"
+tags:
+  - openenv
 pinned: false
 ---
 
 # ⚡ AI Smart Solar Energy Command Center
 **The production-grade RL environment for Distributed Energy Resource (DER) management.**
 
-This environment strictly follows the **Meta OpenEnv Round 1** specifications. It simulates a high-stakes, real-world energy grid balancing task where an AI agent must manage solar generation, community battery storage, and priority residential/critical loads.
+This environment strictly follows the **Meta OpenEnv Round 1** specifications. It simulates a high-stakes, real-world energy grid balancing task where an AI agent must manage solar generation, community battery storage, and priority residential/critical loads. This environment models real-world Distributed Energy Resource (DER) optimization under uncertainty and critical infrastructure constraints.
 
 ## 🚀 Environment Overview
 Grid operators face extreme volatility in renewable generation. This environment enables research into autonomous controllers that can prevent hospital blackouts and optimize grid stability under stormy weather conditions.

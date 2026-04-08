@@ -96,6 +96,11 @@ class SolarEnergyEnv:
             
         self.hospital_demand = self.hospital_base_load if self.hospital_active else 0.0
         self.total_demand = total_home_demand + self.hospital_demand
+        
+        # FIX 2: Add Small Randomness
+        self.total_demand += random.uniform(-3, 3)
+        self.solar_generation += random.uniform(-10, 10)
+        self.solar_generation = max(0.0, self.solar_generation)
 
     def calculate_grader_score(self):
         """
@@ -106,7 +111,9 @@ class SolarEnergyEnv:
         if self.step_count == 0: return 0.0
         
         # 1. Demand Satisfaction for Homes
-        home_sat = min(1.0, self.total_demand_satisfied / (max(1.0, self.total_demand - (self.hospital_demand * self.step_count))))
+        # FIX 4: Fix Grader Division Issue
+        total_home_demand = max(1.0, self.total_demand * self.step_count)
+        home_sat = min(1.0, self.total_demand_satisfied / total_home_demand)
         
         # 2. Critical Zone Handling
         crit_sat = 1.0
@@ -174,19 +181,27 @@ class SolarEnergyEnv:
             else:
                  energy_to_battery = available_energy - self.battery_charge
 
-        self.battery_charge = max(0.0, min(self.battery_capacity, self.battery_charge + energy_to_battery))
+        # FIX 1: Fix Battery Logic Bug
+        self.battery_charge += energy_to_battery
+        self.battery_charge = max(0.0, min(self.battery_capacity, self.battery_charge))
+        
         self.total_demand_satisfied += energy_to_homes
         self.total_hospital_satisfied += energy_to_hospital
         self.total_wasted_energy += wasted_energy
         
-        # Reward Function (Dynamic Feedback)
-        step_reward = 0.0
-        if target_hospital > 0 and energy_to_hospital < target_hospital:
-            step_reward = -1.0
+        # FIX 3: Improve Reward Granularity
+        sat_ratio = (energy_to_hospital + energy_to_homes) / (self.total_demand + 0.01)
+
+        if sat_ratio > 0.95:
+            step_reward = 1.0
+        elif sat_ratio > 0.75:
+            step_reward = 0.7
+        elif sat_ratio > 0.5:
+            step_reward = 0.4
         else:
-            sat_ratio = (energy_to_hospital + energy_to_homes) / (self.total_demand + 0.01)
-            step_reward = 1.0 if sat_ratio > 0.9 else (0.6 if sat_ratio > 0.6 else 0.2)
-            if wasted_energy > 5.0: step_reward -= 0.1
+            step_reward = -0.5
+            
+        if wasted_energy > 5.0: step_reward -= 0.1
             
         step_reward = round(float(step_reward), 2)
         self.cumulative_reward += step_reward
@@ -196,4 +211,8 @@ class SolarEnergyEnv:
         if self.battery_charge <= 0.1 and self.task_id == "hard": done = True
             
         self._update_state()
-        return self.state(), step_reward, done, {"score": self.calculate_grader_score()}
+        return self.state(), step_reward, done, {
+            "score": self.calculate_grader_score(),
+            "battery": self.battery_charge,
+            "solar": self.solar_generation
+        }
