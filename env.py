@@ -139,13 +139,12 @@ class SolarEnergyEnv:
         if math.isnan(final_score) or math.isinf(final_score):
             final_score = 0.5
             
-        # FINAL CONSTRAINT: Strictly inside (0,1)
-        # Using 0.01 as epsilon to ensure that even after rounding by the validator,
-        # the score remains strictly non-zero and non-one.
-        epsilon = 0.01
+        # FINAL CONSTRAINT: Strictly inside (0, 1) per team recommendation
+        # Use 0.0001 as epsilon to ensure natural precision while staying away from boundaries
+        epsilon = 0.0001
         score = float(final_score)
 
-        # Clamp safely inside (0, 1)
+        # Safe Clamp
         score = max(epsilon, min(1.0 - epsilon, score))
 
         return float(score)
