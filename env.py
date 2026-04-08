@@ -32,6 +32,8 @@ class SolarEnergyEnv:
         self.total_demand_satisfied = 0.0
         self.total_hospital_satisfied = 0.0
         self.total_wasted_energy = 0.0
+        self.total_demand_accumulated = 0.0
+        self.total_hospital_demand_accumulated = 0.0
         
         if self.task_id == "hard":
             self.battery_charge = 40.0 
@@ -51,7 +53,7 @@ class SolarEnergyEnv:
             
         self.weather_data = get_weather_data(lat=self.lat, lon=self.lon)
         self._update_state()
-        return self.state()
+        return self.state(), {"score": self.calculate_grader_score()}
 
     def state(self):
         return {
@@ -102,29 +104,44 @@ class SolarEnergyEnv:
         self.solar_generation += random.uniform(-10, 10)
         self.solar_generation = max(0.0, self.solar_generation)
 
+        # Accumulate demand for accurate scoring
+        self.total_demand_accumulated += self.total_demand
+        self.total_hospital_demand_accumulated += self.hospital_demand
+
     def calculate_grader_score(self):
         """
         Deterministic grader as required by OpenEnv spec.
         Weights: Demand Satisfaction (40%), Critical Handling (40%), Efficiency (20%)
-        Returns: float (0.0 to 1.0)
+        Returns: float strictly between (0, 1)
         """
-        if self.step_count == 0: return 0.0
+        if self.step_count == 0: 
+            return 0.05  # Initial score
         
         # 1. Demand Satisfaction for Homes
-        # FIX 4: Fix Grader Division Issue
-        total_home_demand = max(1.0, self.total_demand * self.step_count)
+        # Use accumulated demand for better accuracy
+        total_home_demand = max(1.0, self.total_demand_accumulated)
         home_sat = min(1.0, self.total_demand_satisfied / total_home_demand)
         
         # 2. Critical Zone Handling
         crit_sat = 1.0
         if self.hospital_active:
-            crit_sat = min(1.0, self.total_hospital_satisfied / (self.hospital_base_load * self.step_count))
+            total_crit_demand = max(1.0, self.total_hospital_demand_accumulated)
+            crit_sat = min(1.0, self.total_hospital_satisfied / total_crit_demand)
             
         # 3. Efficiency (Lower waste is better)
-        efficiency = max(0.0, 1.0 - (self.total_wasted_energy / 500.0)) # Scaled against 500kWh waste threshold
+        # Scaled against 500kWh waste threshold
+        efficiency = max(0.0, 1.0 - (self.total_wasted_energy / 500.0))
         
         final_score = (0.4 * home_sat) + (0.4 * crit_sat) + (0.2 * efficiency)
-        return round(float(final_score), 2)
+        
+        # Robust Float check
+        if math.isnan(final_score) or math.isinf(final_score):
+            final_score = 0.5
+            
+        # FINAL FIX: Strict (0, 1) constraint
+        # Use a slightly narrower range [0.01, 0.99] to be absolutely safe
+        clamped_score = max(0.01, min(0.99, float(final_score)))
+        return round(clamped_score, 4)
 
     def close(self):
         """

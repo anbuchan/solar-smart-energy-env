@@ -1,186 +1,234 @@
 import math
 import random
 from models import EnergyObservation, EnergyAction
-from weather import get_weather_data, get_current_time_period
+from weather import get_weather_data
 
 class SolarEnergyEnv:
     def __init__(self, num_houses=4):
         self.num_houses = num_houses
-        self.max_steps = 24  # 24 steps = 24 hours
-        self.battery_capacity = 800.0  # Total capacity
-        self.battery_health = 1.0  # Initial health 100%
-        # Setup house profiles
+        self.max_steps = 24  
+        self.battery_capacity = 150.0  
+        self.battery_health = 1.0
+        
         self.house_profiles = []
         for i in range(num_houses):
-            # Each house has a base load, a peak hour, and a peak multiplier
             self.house_profiles.append({
-                "base_load": random.uniform(10.0, 20.0),
-                "peak_hour": random.choice([8, 12, 19, 21]), # Morning, Noon, Evening, Night
-                "peak_multiplier": random.uniform(2.0, 4.0)
+                "base_load": random.uniform(5.0, 10.0),
+                "peak_hour": random.choice([8, 12, 19, 21]),
+                "peak_multiplier": random.uniform(1.5, 2.5)
             })
+        self.hospital_base_load = 30.0 
         self.reset()
 
-    def reset(self, task_name="easy", seed=None):
+    def reset(self, task_id="easy", seed=None, lat="12.9716", lon="77.5946"):
         if seed is not None:
             random.seed(seed)
             
+        self.lat = lat
+        self.lon = lon
         self.step_count = 0
-        self.task_name = task_name
+        self.task_id = task_id
         self.cumulative_reward = 0.0
-        self.wasted_energy = 0.0
+        self.total_demand_satisfied = 0.0
+        self.total_hospital_satisfied = 0.0
+        self.total_wasted_energy = 0.0
+        self.total_demand_accumulated = 0.0
+        self.total_hospital_demand_accumulated = 0.0
         
-        # Difficulty Modifiers
-        if self.task_name == "hard":
-            self.battery_charge = 50.0  
-            self.demand_multiplier = 1.5
-        elif self.task_name == "medium":
-            self.battery_charge = 200.0
-            self.demand_multiplier = 1.3
+        if self.task_id == "hard":
+            self.battery_charge = 40.0 
+            self.demand_multiplier = 1.8 
+            self.cloud_modifier = 0.8 
+            self.hospital_active = True
+        elif self.task_id == "medium":
+            self.battery_charge = 50.0 
+            self.demand_multiplier = 1.2
+            self.cloud_modifier = 0.4
+            self.hospital_active = False 
         else:
-            self.battery_charge = 400.0 
-            self.demand_multiplier = 1.0
+            self.battery_charge = 150.0 
+            self.demand_multiplier = 0.8 
+            self.cloud_modifier = 0.0 
+            self.hospital_active = False
             
-        # Initial state fetch
-        self.weather_data = get_weather_data()
-        self.time_of_day = get_current_time_period()
-        
-        return self._get_obs()
+        self.weather_data = get_weather_data(lat=self.lat, lon=self.lon)
+        self._update_state()
+        return self.state(), {"score": self.calculate_grader_score()}
 
-    def _get_obs(self):
-        # Time of day based on step 0-23
+    def state(self):
+        return {
+            "step": self.step_count,
+            "hour": self.step_count % 24,
+            "time_of_day": self.time_of_day,
+            "solar_generation": round(self.solar_generation, 2),
+            "total_demand": round(self.total_demand, 2),
+            "per_house_demand": {h: round(v, 2) for h, v in self.per_house_demand.items()},
+            "hospital_demand": round(self.hospital_demand, 2),
+            "battery_charge": round(self.battery_charge, 2),
+            "battery_soc": round(self.battery_charge / self.battery_capacity, 2),
+            "battery_health": round(self.battery_health, 2),
+            "grid_price": 0.15,
+            "is_raining": self.weather_data.get("cloud_cover", 0) > 0.7
+        }
+
+    def _update_state(self):
         hour = self.step_count % 24
-        
-        if 6 <= hour < 12:
-            self.time_of_day = "morning"
-        elif 12 <= hour < 18:
-            self.time_of_day = "afternoon"
-        elif 18 <= hour < 22:
-            self.time_of_day = "evening"
-        else:
-            self.time_of_day = "night"
+        if 6 <= hour < 12: self.time_of_day = "morning"
+        elif 12 <= hour < 18: self.time_of_day = "afternoon"
+        elif 18 <= hour < 22: self.time_of_day = "evening"
+        else: self.time_of_day = "night"
 
-        # Smooth Solar curve (Sine wave over 12 daylight hours approx)
-        # Sunrise around 6 AM, Sunset around 18 PM
         base_solar = 0.0
         if 6 <= hour <= 18:
-            # hour=6 -> sin(0)=0. hour=12 -> sin(pi/2)=1. hour=18 -> sin(pi)=0
             rad = math.pi * ((hour - 6) / 12.0)
-            radiation_max = self.weather_data.get("radiation", 500)
-            base_solar = math.sin(rad) * (radiation_max * 0.8) # 80% efficiency of panels
+            base_solar = math.sin(rad) * 500
         
-        cloud_cover = self.weather_data.get("cloud_cover", 0.5)
-        self.solar_generation = round(base_solar * (1.0 - (cloud_cover * 0.6)), 2)
+        cloud_cover = min(1.0, self.weather_data.get("cloud_cover", 0.5) + self.cloud_modifier)
+        self.solar_generation = max(0.0, base_solar * (1.0 - (cloud_cover * 0.7)))
         
-        # Houses Demand Logic
         self.per_house_demand = {}
-        total_demand = 0.0
+        total_home_demand = 0.0
         for i, profile in enumerate(self.house_profiles):
-            # Base + random noise
-            demand = profile["base_load"] + random.uniform(-2, 2)
-            # Add peak if within 2 hours of peak hour
+            demand = profile["base_load"]
             if abs(hour - profile["peak_hour"]) <= 2:
                 demand *= profile["peak_multiplier"]
+            h_demand = demand * self.demand_multiplier
+            self.per_house_demand[f"house_{i+1}"] = h_demand
+            total_home_demand += h_demand
             
-            demand = round(demand * self.demand_multiplier, 2)
-            self.per_house_demand[f"house_{i+1}"] = demand
-            total_demand += demand
+        self.hospital_demand = self.hospital_base_load if self.hospital_active else 0.0
+        self.total_demand = total_home_demand + self.hospital_demand
+        
+        # FIX 2: Add Small Randomness
+        self.total_demand += random.uniform(-3, 3)
+        self.solar_generation += random.uniform(-10, 10)
+        self.solar_generation = max(0.0, self.solar_generation)
+
+        # Accumulate demand for accurate scoring
+        self.total_demand_accumulated += self.total_demand
+        self.total_hospital_demand_accumulated += self.hospital_demand
+
+    def calculate_grader_score(self):
+        """
+        Deterministic grader as required by OpenEnv spec.
+        Weights: Demand Satisfaction (40%), Critical Handling (40%), Efficiency (20%)
+        Returns: float strictly between (0, 1)
+        """
+        if self.step_count == 0: 
+            return 0.05  # Initial score
+        
+        # 1. Demand Satisfaction for Homes
+        # Use accumulated demand for better accuracy
+        total_home_demand = max(1.0, self.total_demand_accumulated)
+        home_sat = min(1.0, self.total_demand_satisfied / total_home_demand)
+        
+        # 2. Critical Zone Handling
+        crit_sat = 1.0
+        if self.hospital_active:
+            total_crit_demand = max(1.0, self.total_hospital_demand_accumulated)
+            crit_sat = min(1.0, self.total_hospital_satisfied / total_crit_demand)
             
-        self.total_demand = round(total_demand, 2)
-        self.battery_efficiency = round(0.70 + (self.battery_health * 0.25), 2)
+        # 3. Efficiency (Lower waste is better)
+        # Scaled against 500kWh waste threshold
+        efficiency = max(0.0, 1.0 - (self.total_wasted_energy / 500.0))
+        
+        final_score = (0.4 * home_sat) + (0.4 * crit_sat) + (0.2 * efficiency)
+        
+        # Robust Float check
+        if math.isnan(final_score) or math.isinf(final_score):
+            final_score = 0.5
+            
+        # FINAL FIX: Strict (0, 1) constraint
+        # Use a slightly narrower range [0.01, 0.99] to be absolutely safe
+        clamped_score = max(0.01, min(0.99, float(final_score)))
+        return round(clamped_score, 4)
 
-        # For compatibility with existing models, returning simple dict internally 
-        # and letting wrapper handle arrays.
-        self.current_state = {
-            "step": self.step_count,
-            "hour": hour,
-            "time_of_day": self.time_of_day,
-            "solar_generation": self.solar_generation,
-            "total_demand": self.total_demand,
-            "per_house_demand": self.per_house_demand,
-            "battery_charge": round(self.battery_charge, 2),
-            "battery_health": round(self.battery_health, 2),
-            "battery_efficiency": self.battery_efficiency,
-            "wasted_energy": round(self.wasted_energy, 2)
-        }
-        return self.current_state
-
+    def close(self):
+        """
+        Cleanup logic as required by OpenEnv lifecycle.
+        """
+        pass
+    
     def step(self, action: int):
-        """
-        Actions: 
-        0: Store energy (Solar -> Battery)
-        1: Distribute energy (Solar -> Houses)
-        2: Use Battery (Battery -> Houses)
-        3: Reduce load (Simulation of demand response)
-        """
-        reward = 0
+        available_energy = self.solar_generation + self.battery_charge
+        energy_to_homes = 0.0
+        energy_to_hospital = 0.0
+        energy_to_battery = 0.0
+        wasted_energy = 0.0
         
-        # Degradation: Small decay every step
-        self.battery_health = max(0.1, self.battery_health - 0.0005)
+        target_hospital = self.hospital_demand
+        target_homes = sum(self.per_house_demand.values())
         
-        available_solar = self.solar_generation
-        demand_to_meet = self.total_demand
-        
-        self.per_house_distribution = {h: 0.0 for h in self.per_house_demand.keys()}
-        
-        if action == 0:  # STORE
-            if available_solar > 0:
-                charge_amt = available_solar * self.battery_efficiency
-                if self.battery_charge + charge_amt <= self.battery_capacity:
-                    self.battery_charge += charge_amt
-                    reward += 0.5
-                else:
-                    overcharge = (self.battery_charge + charge_amt) - self.battery_capacity
-                    self.battery_charge = self.battery_capacity
-                    self.wasted_energy += overcharge
-                    reward -= 0.5 # Wasting energy
+        if action == 0: # STORE
+            energy_to_battery = min(self.solar_generation, self.battery_capacity - self.battery_charge)
+            remaining = self.solar_generation - energy_to_battery
+            energy_to_hospital = min(remaining, target_hospital)
+            remaining -= energy_to_hospital
+            energy_to_homes = min(remaining, target_homes)
+            wasted_energy = remaining - energy_to_homes
+        elif action == 1: # DISTRIBUTE
+            energy_to_hospital = min(available_energy, target_hospital)
+            available_energy -= energy_to_hospital
+            energy_to_homes = min(available_energy, target_homes)
+            available_energy -= energy_to_homes
+            if available_energy > self.battery_charge:
+                excess = self.solar_generation - (energy_to_hospital + energy_to_homes)
+                energy_to_battery = min(excess, self.battery_capacity - self.battery_charge)
+                wasted_energy = excess - energy_to_battery
             else:
-                reward -= 1.0 # Invalid action at night
-                
-        elif action == 1:  # DISTRIBUTE SOLAR
-            if available_solar > 0:
-                ratio = min(1.0, available_solar / demand_to_meet)
-                for h in self.per_house_demand:
-                    self.per_house_distribution[h] = round(self.per_house_demand[h] * ratio, 2)
-                
-                if available_solar >= demand_to_meet:
-                    reward += 2.0
-                    excess = available_solar - demand_to_meet
-                    # Auto-store excess as basic smart behavior
-                    self.battery_charge = min(self.battery_capacity, self.battery_charge + (excess * self.battery_efficiency))
-                else:
-                    reward += 1.0 * ratio # Partial reward
+                energy_to_battery = available_energy - self.battery_charge
+        elif action == 2: # REDUCE LOAD
+            target_homes *= 0.5 
+            energy_to_hospital = min(available_energy, target_hospital)
+            available_energy -= energy_to_hospital
+            energy_to_homes = min(available_energy, target_homes)
+            available_energy -= energy_to_homes
+            if available_energy > self.battery_charge:
+                energy_to_battery = min(self.solar_generation - (energy_to_hospital + energy_to_homes), self.battery_capacity - self.battery_charge)
+                wasted_energy = self.solar_generation - (energy_to_hospital + energy_to_homes) - energy_to_battery
             else:
-                reward -= 1.0
-                
-        elif action == 2:  # USE BATTERY
-            needed_battery = demand_to_meet / self.battery_efficiency
-            if self.battery_charge >= needed_battery:
-                self.battery_charge -= needed_battery
-                for h in self.per_house_demand:
-                    self.per_house_distribution[h] = self.per_house_demand[h]
-                reward += 2.0
+                energy_to_battery = available_energy - self.battery_charge
+        elif action == 3: # PRIORITIZE CRITICAL
+            energy_to_hospital = min(available_energy, target_hospital)
+            available_energy -= energy_to_hospital
+            energy_to_homes = 0.0
+            if available_energy > self.battery_charge:
+                 energy_to_battery = min(self.solar_generation - energy_to_hospital, self.battery_capacity - self.battery_charge)
+                 wasted_energy = self.solar_generation - energy_to_hospital - energy_to_battery
             else:
-                ratio = self.battery_charge / needed_battery if needed_battery > 0 else 0
-                for h in self.per_house_demand:
-                    self.per_house_distribution[h] = round(self.per_house_demand[h] * ratio, 2)
-                self.battery_charge = 0
-                reward -= 0.5 # Blackout partial
-                
-        elif action == 3:  # REDUCE LOAD
-            # Apply 30% blackout reduction
-            for h in self.per_house_demand:
-                reduced = self.per_house_demand[h] * 0.7
-                self.per_house_distribution[h] = round(reduced, 2)
-            self.total_demand *= 0.7
-            reward += 0.2   # Survival but bad for users
+                 energy_to_battery = available_energy - self.battery_charge
+
+        # FIX 1: Fix Battery Logic Bug
+        self.battery_charge += energy_to_battery
+        self.battery_charge = max(0.0, min(self.battery_capacity, self.battery_charge))
+        
+        self.total_demand_satisfied += energy_to_homes
+        self.total_hospital_satisfied += energy_to_hospital
+        self.total_wasted_energy += wasted_energy
+        
+        # FIX 3: Improve Reward Granularity
+        sat_ratio = (energy_to_hospital + energy_to_homes) / (self.total_demand + 0.01)
+
+        if sat_ratio > 0.95:
+            step_reward = 1.0
+        elif sat_ratio > 0.75:
+            step_reward = 0.7
+        elif sat_ratio > 0.5:
+            step_reward = 0.4
+        else:
+            step_reward = -0.5
             
-        self.cumulative_reward += reward
+        if wasted_energy > 5.0: step_reward -= 0.1
+            
+        step_reward = round(float(step_reward), 2)
+        self.cumulative_reward += step_reward
         self.step_count += 1
+        
         done = self.step_count >= self.max_steps
-        
-        info = {
-            "per_house_distribution": self.per_house_distribution,
-            "wasted_energy": self.wasted_energy
+            
+        self._update_state()
+        return self.state(), step_reward, done, {
+            "score": self.calculate_grader_score(),
+            "battery": self.battery_charge,
+            "solar": self.solar_generation
         }
-        
-        return self._get_obs(), round(reward, 2), done, info

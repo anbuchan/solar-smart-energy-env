@@ -39,8 +39,8 @@ class SolarGymEnv(gym.Env):
     def reset(self, seed=None, options=None, task_id="easy", lat="12.9716", lon="77.5946"):
         if seed is not None:
             np.random.seed(seed)
-        self.env.reset(task_id=task_id, seed=seed, lat=lat, lon=lon)
-        return self._get_obs(), {}
+        _, info = self.env.reset(task_id=task_id, seed=seed, lat=lat, lon=lon)
+        return self._get_obs(), info
 
     def step(self, action):
         _state, reward, done, info = self.env.step(int(action))

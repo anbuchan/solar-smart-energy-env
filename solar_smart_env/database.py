@@ -27,38 +27,53 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_step(step, action, solar, battery, total_demand, per_house_demand, per_house_distribution, reward, baseline_reward, efficiency, wasted_energy):
+def save_step(step, action, solar, battery, total_demand, per_house_demand, per_house_distribution, reward, baseline_reward, efficiency, wasted_energy, timestamp=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO simulation_history_v2 (
-            step, action, solar_generation, battery_level, total_demand, 
-            per_house_demand, per_house_distribution, reward, baseline_reward, efficiency, wasted_energy
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        step, action, solar, battery, total_demand, 
-        json.dumps(per_house_demand), json.dumps(per_house_distribution), 
-        reward, baseline_reward, efficiency, wasted_energy
-    ))
+    if timestamp:
+        cursor.execute('''
+            INSERT INTO simulation_history_v2 (
+                step, action, solar_generation, battery_level, total_demand, 
+                per_house_demand, per_house_distribution, reward, baseline_reward, efficiency, wasted_energy, timestamp
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            step, action, solar, battery, total_demand, 
+            json.dumps(per_house_demand), json.dumps(per_house_distribution), 
+            reward, baseline_reward, efficiency, wasted_energy, timestamp
+        ))
+    else:
+        cursor.execute('''
+            INSERT INTO simulation_history_v2 (
+                step, action, solar_generation, battery_level, total_demand, 
+                per_house_demand, per_house_distribution, reward, baseline_reward, efficiency, wasted_energy
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            step, action, solar, battery, total_demand, 
+            json.dumps(per_house_demand), json.dumps(per_house_distribution), 
+            reward, baseline_reward, efficiency, wasted_energy
+        ))
     conn.commit()
     conn.close()
 
-def get_history(limit=50):
+def get_history(limit=100):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM simulation_history_v2 ORDER BY timestamp DESC LIMIT ?', (limit,))
+    cursor.execute('SELECT * FROM simulation_history_v2 ORDER BY timestamp DESC, id ASC LIMIT ?', (limit,))
     rows = cursor.fetchall()
     
-    # Get column names
     col_names = [description[0] for description in cursor.description]
     
     result = []
     for row in rows:
         row_dict = dict(zip(col_names, row))
         try:
-            row_dict['per_house_demand'] = json.loads(row_dict['per_house_demand'])
-            row_dict['per_house_distribution'] = json.loads(row_dict['per_house_distribution'])
+            d1 = json.loads(row_dict['per_house_demand'])
+            row_dict['per_house_demand'] = str(d1)
+            
+            d2 = json.loads(row_dict['per_house_distribution'])
+            row_dict['per_house_distribution'] = str(d2)
         except:
             pass
         result.append(row_dict)
