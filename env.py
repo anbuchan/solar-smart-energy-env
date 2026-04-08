@@ -208,7 +208,6 @@ class SolarEnergyEnv:
         self.step_count += 1
         
         done = self.step_count >= self.max_steps
-        if self.battery_charge <= 0.0 and self.task_id == "hard": done = True
             
         self._update_state()
         return self.state(), step_reward, done, {
