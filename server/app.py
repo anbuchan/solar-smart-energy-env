@@ -1,17 +1,25 @@
 from fastapi import FastAPI
-from env import SolarEnergyEnv
-from rl_agent import SolarGymEnv, get_trained_model
-from database import save_step, get_history, init_db
+try:
+    from ..env import SolarEnergyEnv
+    from ..rl_agent import SolarGymEnv, get_trained_model
+    from ..database import save_step, get_history, init_db
+    from ..llm import generate_xai_report
+    from ..weather import get_location_coords
+    from ..models import EnergyObservation
+except ImportError:
+    from env import SolarEnergyEnv
+    from rl_agent import SolarGymEnv, get_trained_model
+    from database import save_step, get_history, init_db
+    from llm import generate_xai_report
+    from weather import get_location_coords
+    from models import EnergyObservation
+from datetime import datetime
 import uvicorn
 import gradio as gr
 import pandas as pd
 import json
 import random
 import plotly.graph_objects as go
-from llm import generate_xai_report
-from weather import get_location_coords
-from models import EnergyObservation
-from datetime import datetime
 
 app = FastAPI()
 
@@ -265,5 +273,9 @@ with gr.Blocks(theme=gr.themes.Monochrome(), css=custom_css) as demo:
 
 app = gr.mount_gradio_app(app, demo, path="/")
 
+def main():
+    import uvicorn
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
+
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=7860, reload=False)
+    main()
