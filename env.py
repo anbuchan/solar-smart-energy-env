@@ -68,7 +68,8 @@ class SolarEnergyEnv:
             "battery_soc": round(self.battery_charge / self.battery_capacity, 2),
             "battery_health": round(self.battery_health, 2),
             "grid_price": 0.15,
-            "is_raining": self.weather_data.get("cloud_cover", 0) > 0.7
+            "is_raining": self.weather_data.get("cloud_cover", 0) > 0.7,
+            "per_house_distribution": {h: round(v, 2) for h, v in getattr(self, "per_house_distribution", {}).items()}
         }
 
     def _update_state(self):
@@ -206,6 +207,16 @@ class SolarEnergyEnv:
         self.total_hospital_satisfied += energy_to_hospital
         self.total_wasted_energy += wasted_energy
         
+        # FIX: Track per-house distribution for telemetry
+        self.per_house_distribution = {}
+        total_home_demand = sum(self.per_house_demand.values())
+        if total_home_demand > 0:
+            ratio = energy_to_homes / total_home_demand
+            for h, d in self.per_house_demand.items():
+                self.per_house_distribution[h] = d * ratio
+        else:
+            self.per_house_distribution = {h: 0.0 for h in self.per_house_demand}
+        
         # FIX 3: Improve Reward Granularity
         sat_ratio = (energy_to_hospital + energy_to_homes) / (self.total_demand + 0.01)
 
@@ -230,5 +241,6 @@ class SolarEnergyEnv:
         return self.state(), step_reward, done, {
             "score": self.calculate_grader_score(),
             "battery": self.battery_charge,
-            "solar": self.solar_generation
+            "solar": self.solar_generation,
+            "per_house_distribution": {h: round(v, 2) for h, v in self.per_house_distribution.items()}
         }
