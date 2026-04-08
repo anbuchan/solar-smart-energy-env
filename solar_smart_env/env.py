@@ -139,10 +139,20 @@ class SolarEnergyEnv:
         if math.isnan(final_score) or math.isinf(final_score):
             final_score = 0.5
             
-        # FINAL FIX: Strict (0, 1) constraint
-        # Use a slightly narrower range [0.01, 0.99] to be absolutely safe
-        clamped_score = max(0.01, min(0.99, float(final_score)))
-        return float(clamped_score)
+        # FINAL CONSTRAINT: Strictly inside (0,1)
+        epsilon = 1e-6
+        score = float(final_score)
+
+        # Clamp safely inside (0,1)
+        if score <= 0.0:
+            score = 0.0 + epsilon
+        elif score >= 1.0:
+            score = 1.0 - epsilon
+
+        # Extra safety clamp
+        score = max(epsilon, min(1.0 - epsilon, score))
+
+        return score
 
     def close(self):
         """
