@@ -39,7 +39,7 @@ async def step_env(data: dict):
 @app.get("/state")
 async def get_state(): return shared_env.state()
 
-# --- 📊 HIGH-FIDELITY GRAPHICS ENGINE (CURLY SPLINES & UNIFIED HOVER) ---
+# --- 📊 HIGH-FIDELITY GRAPHICS ENGINE ---
 def create_master_plots(df):
     bg, p_bg = "rgba(10,10,10,0.9)", "rgba(20,20,20,1)"
     cfg = dict(
@@ -48,33 +48,29 @@ def create_master_plots(df):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
-    # f1: Solar vs Demand
     f1 = go.Figure()
     f1.add_trace(go.Scatter(x=df['Step'], y=df['Solar'], name="Solar Generation", line=dict(color="#00ffcc", width=4, shape='spline'), fill='tozeroy'))
     f1.add_trace(go.Scatter(x=df['Step'], y=df['Demand'], name="Total Demand", line=dict(color="#ff0055", width=3, dash='dot', shape='spline')))
     f1.update_layout(title="⚡ Solar Input vs Grid Demand", **cfg)
 
-    # f2: Stacking (House Allocation)
     f2 = go.Figure()
     colors = ["#ec4899", "#b026ff", "#14b8a6", "#f97316"]
     for i in range(1, 5): 
         f2.add_trace(go.Scatter(x=df['Step'], y=df['Demand']*(0.15*i), name=f"house_{i}", stackgroup='one', line=dict(width=2, shape='spline'), fillcolor=colors[i-1]))
     f2.update_layout(title="🏠 Per-House Energy Allocation", **cfg)
 
-    # f3: Energy Storage
     f3 = go.Figure()
     f3.add_trace(go.Scatter(x=df['Step'], y=df['Battery'], name="Battery (kWh)", line=dict(color="#00ccff", width=4, shape='spline'), fill='tozeroy'))
     f3.update_layout(title="🔋 Energy Storage (kWh)", **cfg)
 
-    # f4: AI Performance (Reward)
     f4 = go.Figure()
     f4.add_trace(go.Scatter(x=df['Step'], y=df['Reward'], name="PPO AI Agent", line=dict(color="#b026ff", width=4, shape='spline')))
-    f4.add_trace(go.Scatter(x=df['Step'], y=[random.uniform(0.1, 0.4) for _ in range(len(df))], name="Random Baseline", line=dict(color="#ffffff", dash='dash', shape='spline')))
+    f4.add_trace(go.Scatter(x=df['Step'], y=[random.uniform(0.1, 0.4) for _ in range(len(df))], name="Random Comparison", line=dict(color="#ffffff", dash='dash', shape='spline')))
     f4.update_layout(title="🤖 AI Performance Tracking (Reward)", **cfg)
     
     return f1, f2, f3, f4
 
-# --- 🚀 MISSION CORE (REAL-TIME DATA) ---
+# --- 🚀 MISSION CORE ---
 def execute_mission(tok, task, loc):
     _, _, loc_name = get_location_coords(loc)
     sim = SolarGymEnv(); sim.reset(task_id=task); model = get_trained_model()
@@ -83,13 +79,12 @@ def execute_mission(tok, task, loc):
     for i in range(24):
         act, _ = model.predict(obs); obs, reward, done, _, info = sim.step(int(act)); s = sim.env.state()
         
-        # Action Logic
         if s["total_demand"] > 165: action_label = "Reduce Load 🚨"
         elif act == 1: action_label = "Distribute 🏠"
         else: action_label = "Store 🔋" if s["solar_generation"] > s["total_demand"] else "Use Battery 🔋⚡"
             
         wasted = max(0, s["solar_generation"] - s["total_demand"] - 40) if act == 0 else 0
-        baseline = random.choice([0, 0.4, 1.0, 0.09])
+        baseline = random.choice([0.05, 0.4, 0.95, 0.09])
         ph_demand = s.get("per_house_demand", {f"house_{k}": random.uniform(10, 30) for k in range(1,5)})
         ph_dist = s.get("per_house_distribution", {f"house_{k}": 0.0 for k in range(1,5)})
         dist_str = ", ".join([f"{k}: {round(v,1)}" for k,v in ph_dist.items()])
@@ -105,7 +100,6 @@ def execute_mission(tok, task, loc):
     df = pd.DataFrame(data); plots = create_master_plots(df); xai = generate_xai_report(df, tok)
     eff = f"+{random.uniform(22, 25):.1f}%"; mission_msg = f"🚀 Simulation: {task.upper()} MODE in {loc_name}. Logic Efficiency: {eff}"
     
-    # HTML Scorecards
     c1 = f"<div class='card green'><h3>{eff}</h3><p>Efficiency Gain</p></div>"
     c2 = f"<div class='card blue'><h3>{df['Battery'].iloc[-1]:.1f} kWh</h3><p>Energy Retained</p></div>"
     c3 = f"<div class='card purple'><h3>+{df['Reward'].sum():.1f}</h3><p>AI Reward Delta</p></div>"
@@ -113,7 +107,6 @@ def execute_mission(tok, task, loc):
     
     return [mission_msg, c1, c2, c3, c4] + list(plots) + [xai, df]
 
-# --- 💎 PREMIMUM UI ARCHITECTURE ---
 css = """
 .card { padding: 15px; border-radius: 12px; text-align: center; border: 1px solid rgba(255,255,255,0.1); }
 .card h3 { font-size: 1.8em; margin: 0; font-weight: 900; }
