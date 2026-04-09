@@ -3,13 +3,14 @@ import random
 from models import EnergyObservation, EnergyAction
 from weather import get_weather_data
 
+
 class SolarEnergyEnv:
     def __init__(self, num_houses=4):
         self.num_houses = num_houses
-        self.max_steps = 24  
-        self.battery_capacity = 150.0  
+        self.max_steps = 24
+        self.battery_capacity = 150.0
         self.battery_health = 1.0
-        
+
         self.house_profiles = []
         for i in range(num_houses):
             self.house_profiles.append({
@@ -18,7 +19,7 @@ class SolarEnergyEnv:
                 "peak_multiplier": random.uniform(1.5, 2.5)
             })
 
-        self.hospital_base_load = 30.0 
+        self.hospital_base_load = 30.0
         self.reset()
 
     def reset(self, task_id="easy", seed=None, lat="12.9716", lon="77.5946"):
@@ -42,11 +43,13 @@ class SolarEnergyEnv:
             self.demand_multiplier = 1.8
             self.cloud_modifier = 0.8
             self.hospital_active = True
+
         elif self.task_id == "medium":
             self.battery_charge = 50.0
             self.demand_multiplier = 1.2
             self.cloud_modifier = 0.4
             self.hospital_active = False
+
         else:
             self.battery_charge = 150.0
             self.demand_multiplier = 0.8
@@ -55,6 +58,7 @@ class SolarEnergyEnv:
 
         self.weather_data = get_weather_data(lat=self.lat, lon=self.lon)
         self._update_state()
+
         return self.state(), {"score": self.calculate_grader_score()}
 
     def state(self):
@@ -71,7 +75,9 @@ class SolarEnergyEnv:
             "battery_health": round(self.battery_health, 2),
             "grid_price": 0.15,
             "is_raining": self.weather_data.get("cloud_cover", 0) > 0.7,
-            "per_house_distribution": {h: round(v, 2) for h, v in getattr(self, "per_house_distribution", {}).items()}
+            "per_house_distribution": {
+                h: round(v, 2) for h, v in getattr(self, "per_house_distribution", {}).items()
+            }
         }
 
     def _update_state(self):
@@ -109,7 +115,7 @@ class SolarEnergyEnv:
         self.hospital_demand = self.hospital_base_load if self.hospital_active else 0.0
         self.total_demand = total_home_demand + self.hospital_demand
 
-        # Add noise
+        # small randomness
         self.total_demand += random.uniform(-3, 3)
         self.solar_generation += random.uniform(-10, 10)
         self.solar_generation = max(0.0, self.solar_generation)
@@ -117,10 +123,11 @@ class SolarEnergyEnv:
         self.total_demand_accumulated += self.total_demand
         self.total_hospital_demand_accumulated += self.hospital_demand
 
-    # ✅ FINAL FIXED GRADER
     def calculate_grader_score(self):
+        epsilon = 0.05
+        
         if self.step_count == 0:
-            return 0.05
+            return 0.1  # Safe starting score
 
         total_home_demand = max(1.0, self.total_demand_accumulated)
         home_sat = min(1.0, self.total_demand_satisfied / total_home_demand)
@@ -130,22 +137,14 @@ class SolarEnergyEnv:
             total_crit = max(1.0, self.total_hospital_demand_accumulated)
             crit_sat = min(1.0, self.total_hospital_satisfied / total_crit)
 
-        efficiency = max(0.0, 1.0 - (self.total_wasted_energy / 500.0))
+        efficiency = max(0.0, 1.0 - (self.total_wasted_energy / 1000.0))
 
         score = (0.4 * home_sat) + (0.4 * crit_sat) + (0.2 * efficiency)
 
-        if math.isnan(score) or math.isinf(score):
-            score = 0.5
+        # Strictly (0, 1) clamping
+        score = max(epsilon, min(1.0 - epsilon, float(score)))
 
-        # 🚨 CRITICAL FIX
-        score = round(float(score), 2)
-
-        if score >= 1.0:
-            score = 0.99
-        elif score <= 0.0:
-            score = 0.01
-
-        return score
+        return float(round(score, 4))
 
     def close(self):
         pass
@@ -161,29 +160,41 @@ class SolarEnergyEnv:
         target_hospital = self.hospital_demand
         target_homes = sum(self.per_house_demand.values())
 
-        if action == 0:
+        if action == 0:  # STORE
             energy_to_battery = min(self.solar_generation, self.battery_capacity - self.battery_charge)
-        elif action == 1:
+            remaining = self.solar_generation - energy_to_battery
+            energy_to_hospital = min(remaining, target_hospital)
+            remaining -= energy_to_hospital
+            energy_to_homes = min(remaining, target_homes)
+            wasted_energy = remaining - energy_to_homes
+
+        elif action == 1:  # DISTRIBUTE
             energy_to_hospital = min(available_energy, target_hospital)
             available_energy -= energy_to_hospital
             energy_to_homes = min(available_energy, target_homes)
-        elif action == 2:
+            available_energy -= energy_to_homes
+
+        elif action == 2:  # REDUCE LOAD
             target_homes *= 0.5
             energy_to_hospital = min(available_energy, target_hospital)
             available_energy -= energy_to_hospital
             energy_to_homes = min(available_energy, target_homes)
-        elif action == 3:
-            energy_to_hospital = min(available_energy, target_hospital)
 
-        # Battery update
-        self.battery_charge += energy_to_battery
-        self.battery_charge = max(0.0, min(self.battery_capacity, self.battery_charge))
+        elif action == 3:  # PRIORITIZE CRITICAL
+            energy_to_hospital = min(available_energy, target_hospital)
+            energy_to_homes = 0.0
+
+        # battery update
+        self.battery_charge = max(
+            0.0,
+            min(self.battery_capacity, self.battery_charge + energy_to_battery)
+        )
 
         self.total_demand_satisfied += energy_to_homes
         self.total_hospital_satisfied += energy_to_hospital
         self.total_wasted_energy += wasted_energy
 
-        # Distribution tracking
+        # distribution tracking
         self.per_house_distribution = {}
         total_home_demand = sum(self.per_house_demand.values())
 
@@ -194,22 +205,18 @@ class SolarEnergyEnv:
         else:
             self.per_house_distribution = {h: 0.0 for h in self.per_house_demand}
 
-        # Reward
-        sat_ratio = (energy_to_hospital + energy_to_homes) / (self.total_demand + 0.01)
-
-        if sat_ratio > 0.95:
-            step_reward = 0.95
-        elif sat_ratio > 0.75:
-            step_reward = 0.7
-        elif sat_ratio > 0.5:
-            step_reward = 0.4
-        else:
-            step_reward = -0.5
+        # ✅ FINAL FIXED REWARD (STRICT RANGE - Baseline Removed)
+        sat_ratio = (energy_to_hospital + energy_to_homes) / (self.total_demand + 1e-6)
+        
+        step_reward = sat_ratio
 
         if wasted_energy > 5.0:
             step_reward -= 0.1
 
-        step_reward = round(float(step_reward), 2)
+        epsilon = 0.05
+        step_reward = max(epsilon, min(1.0 - epsilon, step_reward))
+
+        step_reward = float(round(step_reward, 4))
 
         self.cumulative_reward += step_reward
         self.step_count += 1
@@ -219,8 +226,5 @@ class SolarEnergyEnv:
         self._update_state()
 
         return self.state(), step_reward, done, {
-            "score": self.calculate_grader_score(),
-            "battery": self.battery_charge,
-            "solar": self.solar_generation,
-            "per_house_distribution": {h: round(v, 2) for h, v in self.per_house_distribution.items()}
+            "score": self.calculate_grader_score()
         }
